@@ -96,9 +96,29 @@ class NixlStorageConfig:
 
         enable_presence_cache = extra_config.get("nixl_presence_cache", False)
         enable_async_put = extra_config.get("nixl_async_put", False)
-        backend_params = extra_config.get("nixl_backend_params", {})
+        backend_params = dict(extra_config.get("nixl_backend_params", {}))
         use_direct_io = extra_config.get("use_direct_io", False)
         pool_size = extra_config.get("nixl_pool_size")
+
+        # Per-worker endpoint distribution: if nixl_endpoint_list is set,
+        # override endpoint_override so each TP worker targets a different
+        # object-storage endpoint (round-robin by worker_id).
+        endpoint_list = extra_config.get("nixl_endpoint_list")
+        if endpoint_list:
+            if "endpoint_override" in backend_params:
+                logger.warning(
+                    "nixl_endpoint_list is set; ignoring "
+                    "nixl_backend_params.endpoint_override (%s)",
+                    backend_params["endpoint_override"],
+                )
+            ep = endpoint_list[metadata.worker_id % len(endpoint_list)]
+            backend_params["endpoint_override"] = ep
+            logger.info(
+                "Worker %d using endpoint %s (from %d endpoints)",
+                metadata.worker_id,
+                ep,
+                len(endpoint_list),
+            )
         backend = extra_config.get("nixl_backend")
         path = extra_config.get("nixl_path")
 

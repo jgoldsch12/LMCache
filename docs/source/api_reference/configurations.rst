@@ -325,6 +325,8 @@ Settings for using Nixl as a storage backend instead of disaggregated prefill. T
      - File system path for Nixl storage
    * - nixl_file_pool_size
      - Number of files in the storage pool
+   * - nixl_endpoint_list
+     - List of object-storage endpoint URLs for per-worker distribution. Each TP worker selects an endpoint round-robin by ``worker_id``. Overrides ``nixl_backend_params.endpoint_override`` when set.
 
 
 Additional Storage Configurations

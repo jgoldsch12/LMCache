@@ -119,6 +119,93 @@ def test_nixl_storage_config():
     assert not NixlStorageConfig.validate_nixl_backend("INVALID", "cpu")
 
 
+def _make_obj_config(
+    extra_overrides: dict | None = None,
+) -> LMCacheEngineConfig:
+    """Create a minimal OBJ-backend config for endpoint-list tests."""
+    config = LMCacheEngineConfig()
+    config.nixl_buffer_size = 2**30  # 1 GB
+    config.nixl_buffer_device = "cpu"
+    config.extra_config = {
+        "enable_nixl_storage": True,
+        "nixl_backend": "OBJ",
+        "nixl_pool_size": 64,
+        "nixl_path": tempfile.mkdtemp(),
+    }
+    if extra_overrides:
+        config.extra_config.update(extra_overrides)
+    return config
+
+
+def _make_metadata(worker_id: int = 0) -> LMCacheMetadata:
+    """Create test metadata with a configurable worker_id."""
+    return LMCacheMetadata(
+        model_name="test_model",
+        worker_id=worker_id,
+        local_world_size=1,
+        local_worker_id=0,
+        world_size=1,
+        kv_dtype=torch.bfloat16,
+        kv_shape=(32, 2, 256, 1024, 128),
+    )
+
+
+@pytest.mark.no_shared_allocator
+def test_endpoint_list_round_robin():
+    """nixl_endpoint_list should assign endpoints to workers round-robin."""
+    endpoints = [
+        "https://node-0:9021",
+        "https://node-1:9021",
+        "https://node-2:9021",
+    ]
+    config = _make_obj_config({"nixl_endpoint_list": endpoints})
+
+    for worker_id in range(6):
+        metadata = _make_metadata(worker_id=worker_id)
+        nixl_config = NixlStorageConfig.from_cache_engine_config(config, metadata)
+        expected = endpoints[worker_id % len(endpoints)]
+        assert nixl_config.backend_params["endpoint_override"] == expected
+
+
+@pytest.mark.no_shared_allocator
+def test_endpoint_list_overrides_endpoint_override():
+    """nixl_endpoint_list takes precedence over backend_params endpoint_override."""
+    endpoints = ["https://node-0:9021"]
+    config = _make_obj_config(
+        {
+            "nixl_endpoint_list": endpoints,
+            "nixl_backend_params": {
+                "endpoint_override": "https://should-be-ignored:9021",
+                "access_key": "key",
+            },
+        }
+    )
+    metadata = _make_metadata(worker_id=0)
+
+    nixl_config = NixlStorageConfig.from_cache_engine_config(config, metadata)
+
+    assert nixl_config.backend_params["endpoint_override"] == endpoints[0]
+    # other params must be preserved
+    assert nixl_config.backend_params["access_key"] == "key"
+
+
+@pytest.mark.no_shared_allocator
+def test_endpoint_list_does_not_mutate_original_config():
+    """Setting nixl_endpoint_list must not mutate the original backend_params dict."""
+    original_params = {"access_key": "key", "secret_key": "secret"}
+    config = _make_obj_config(
+        {
+            "nixl_endpoint_list": ["https://node-0:9021"],
+            "nixl_backend_params": original_params,
+        }
+    )
+    metadata = _make_metadata(worker_id=0)
+
+    NixlStorageConfig.from_cache_engine_config(config, metadata)
+
+    assert "endpoint_override" not in original_params
+
+
 @pytest.mark.no_shared_allocator
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="Requires CUDA")
 def test_nixl_storage_backend_basic():
