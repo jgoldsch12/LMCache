@@ -214,6 +214,19 @@ def CreateStorageBackends(
             )
         )
 
+    enable_s3rdma_storage = extra_config is not None and extra_config.get(
+        "enable_s3rdma_storage"
+    )
+    if enable_s3rdma_storage and "S3RdmaStorageBackend" not in _skip:
+        # First Party
+        from lmcache.v1.storage_backend.s3rdma_storage_backend import (
+            S3RdmaStorageBackend,
+        )
+
+        storage_backends["S3RdmaStorageBackend"] = (
+            S3RdmaStorageBackend.CreateS3RdmaStorageBackend(config, loop, metadata)
+        )
+
     if (
         config.local_disk
         and config.max_local_disk_size > 0
